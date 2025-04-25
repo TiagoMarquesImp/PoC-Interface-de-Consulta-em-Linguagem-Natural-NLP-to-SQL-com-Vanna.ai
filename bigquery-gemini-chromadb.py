@@ -1,3 +1,10 @@
+# Add this at the very top of your file, before any other imports
+import os
+import sys
+
+__import__('pysqlite3')
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 from vanna.chromadb import ChromaDB_VectorStore
 from vanna.google import GoogleGeminiChat
 import os
