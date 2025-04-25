@@ -3,8 +3,9 @@ streamlit>=1.22.0
 vanna>=0.1.0
 python-dotenv>=0.21.0
 
-# Vector store
-chromadb>=0.4.6
+# Vector store - using a specific version known to work better with Streamlit
+chromadb==0.4.18
+pysqlite3-binary>=0.5.0
 
 # Google dependencies
 google-cloud-bigquery>=3.9.0
@@ -16,3 +17,4 @@ google-generativeai>=0.3.0
 # Utilities
 pandas>=1.5.3
 numpy>=1.24.3
+
