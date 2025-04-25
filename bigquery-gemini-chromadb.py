@@ -36,10 +36,19 @@ BQ_DATASET = 'seat'
 GCP_REGION = "us-central1"
 
 
-
+# Configure ChromaDB to use in-memory storage to avoid SQLite version issues
 class MyVanna(ChromaDB_VectorStore, GoogleGeminiChat):
     def __init__(self, config=None):
-        ChromaDB_VectorStore.__init__(self, config=config)
+        # Configure ChromaDB to use in-memory storage
+        chroma_config = {
+            'chroma_db_impl': 'duckdb+parquet',
+            'persist_directory': None,  # In-memory mode
+            'collection_name': 'vanna_collection'
+        }
+        if config:
+            chroma_config.update(config)
+            
+        ChromaDB_VectorStore.__init__(self, config=chroma_config)
         GoogleGeminiChat.__init__(self, config={'api_key': gemini_api_key, 'model': 'gemini-pro'})
 
 vn = MyVanna()
