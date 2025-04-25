@@ -1,15 +1,14 @@
 # Add this at the very top of your file, before any other imports
 import os
 import sys
-import json
 
 __import__('pysqlite3')
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 from vanna.chromadb import ChromaDB_VectorStore
 from vanna.google import GoogleGeminiChat
+import os
 from dotenv import load_dotenv
-from google.oauth2 import service_account
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,16 +17,7 @@ GCP_PROJECT_ID = 'hitech-dados'
 BQ_DATASET = 'seat'
 GCP_REGION = "us-central1"
 
-# Create a credentials.json file from environment variable if it exists
-credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-credentials_path = None
 
-if credentials_json:
-    # Create a temporary credentials file
-    credentials_path = "google_credentials.json"
-    with open(credentials_path, 'w') as f:
-        f.write(credentials_json)
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
 
 class MyVanna(ChromaDB_VectorStore, GoogleGeminiChat):
     def __init__(self, config=None):
@@ -36,16 +26,7 @@ class MyVanna(ChromaDB_VectorStore, GoogleGeminiChat):
 
 vn = MyVanna()
 
-# Modified connection to BigQuery with explicit credentials if available
-if credentials_path:
-    vn.connect_to_bigquery(project_id=GCP_PROJECT_ID, cred_file_path=credentials_path)
-else:
-    # Try to connect using default credentials (for local development)
-    try:
-        vn.connect_to_bigquery(project_id=GCP_PROJECT_ID)
-    except Exception as e:
-        print(f"Failed to connect to BigQuery: {e}")
-        print("Please set GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable")
+vn.connect_to_bigquery(project_id='hitech-dados')
 
 # The following are methods for adding training data. Make sure you modify the examples to match your database.
 
