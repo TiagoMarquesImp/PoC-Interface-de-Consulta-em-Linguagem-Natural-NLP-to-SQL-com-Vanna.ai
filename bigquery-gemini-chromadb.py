@@ -1,33 +1,38 @@
 # Add this at the very top of your file, before any other imports
 import os
 import sys
-import streamlit as st
+import streamlit as st # <-- Importa o Streamlit
 import json
 import time
 import plotly.express as px
 import plotly.graph_objects as go # Renomeado para go para evitar conflito com fig no exec
 
+# --- MOVER st.set_page_config() PARA CÁ ---
+# Deve ser o PRIMEIRO comando Streamlit após os imports
+st.set_page_config(page_title="Consulta em Linguagem Natural - Impulso", layout="wide")
+# --------------------------------------------
+
 # Tentativa de importar e configurar pysqlite3 para ambientes como Streamlit Cloud
-# Remova ou ajuste se causar problemas no seu ambiente específico
+# Agora esta parte vem DEPOIS de set_page_config
 try:
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    # Nota: Chamar st.sidebar aqui no início pode ter um efeito visual mínimo
+    # Se preferir, pode mover essas mensagens para dentro da função setup_vanna
     st.sidebar.info("SQLite driver substituído por pysqlite3.")
 except ImportError:
     st.sidebar.warning("pysqlite3 não encontrado, usando sqlite3 padrão.")
     # pass # Continua com o sqlite3 padrão se pysqlite3 não estiver disponível
 
+# --- Outros imports necessários ---
 from vanna.chromadb import ChromaDB_VectorStore
 from vanna.google import GoogleGeminiChat
-# from dotenv import load_dotenv # Removido pois focaremos nos secrets
 import pandas as pd
 from google.oauth2 import service_account
 from google.cloud import bigquery
+import tempfile # Importado para usar no path do ChromaDB
 
-# Load environment variables from .env file - Removido, não relevante para secrets
-# load_dotenv()
-
-# Constantes do Projeto - Ajuste conforme necessário
+# --- Constantes do Projeto ---
 GCP_PROJECT_ID = 'hitech-dados'
 BQ_DATASET = 'seat'
 # GCP_REGION = "us-central1" # Não parece ser usado diretamente no código Vanna aqui
@@ -476,4 +481,3 @@ if my_question:
         assistant_message_error = st.chat_message("assistant", avatar=avatar_url)
         # A mensagem de erro já deve ter sido mostrada em generate_sql_cached
         assistant_message_error.warning("Não foi possível gerar uma consulta SQL para essa pergunta.")
-        
