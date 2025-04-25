@@ -16,5 +16,5 @@ google-generativeai>=0.3.0
 
 # Utilities
 pandas>=1.5.3
-numpy>=1.24.3
+numpy<2.0.0  # Pinning to version before 2.0 to avoid np.float_ deprecation
 
