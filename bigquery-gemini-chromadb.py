@@ -23,9 +23,9 @@ st.set_page_config(page_title="Consulta em Linguagem Natural - Impulso", layout=
 st.title("Consulta em Linguagem Natural para BigQuery")
 st.write("Faça perguntas sobre os dados de alocação de impulsers em linguagem natural")
 
-# Initialize Vanna
-@st.cache_resource
-def get_vanna_instance():
+# Initialize Vanna with caching
+@st.cache_resource(ttl=3600)
+def setup_vanna():
     class MyVanna(ChromaDB_VectorStore, GoogleGeminiChat):
         def __init__(self, config=None):
             ChromaDB_VectorStore.__init__(self, config=config)
@@ -78,33 +78,48 @@ def get_vanna_instance():
     
     return vn
 
-vn = get_vanna_instance()
+# Cache the SQL generation
+@st.cache_data(show_spinner="Gerando consulta SQL...")
+def generate_sql_cached(question: str):
+    vn = setup_vanna()
+    return vn.generate_sql(question=question)
+
+# Cache the SQL execution
+@st.cache_data(show_spinner="Executando consulta...")
+def run_sql_cached(sql: str):
+    vn = setup_vanna()
+    return vn.run_sql(sql=sql)
+
+# Cache the answer generation
+@st.cache_data(show_spinner="Gerando explicação...")
+def generate_answer_cached(question: str, sql: str, df):
+    vn = setup_vanna()
+    return vn.generate_answer(question=question, sql=sql, df=df)
 
 # Create the Streamlit interface
 query = st.text_input("Digite sua pergunta sobre os dados:")
 
 if query:
-    with st.spinner("Gerando consulta SQL..."):
-        sql = vn.generate_sql(query)
-        
+    sql = generate_sql_cached(query)
+    
     st.subheader("Consulta SQL gerada:")
     st.code(sql, language="sql")
     
     if st.button("Executar consulta"):
-        with st.spinner("Executando consulta..."):
-            try:
-                df = vn.run_sql(sql)
-                st.subheader("Resultados:")
-                st.dataframe(df)
-                
-                # Generate explanation
-                explanation = vn.generate_answer(query, sql, df)
-                st.subheader("Explicação:")
-                st.write(explanation)
-            except Exception as e:
-                st.error(f"Erro ao executar a consulta: {e}")
+        try:
+            df = run_sql_cached(sql)
+            st.subheader("Resultados:")
+            st.dataframe(df)
+            
+            # Generate explanation
+            explanation = generate_answer_cached(query, sql, df)
+            st.subheader("Explicação:")
+            st.write(explanation)
+        except Exception as e:
+            st.error(f"Erro ao executar a consulta: {e}")
 
 # Display training data if requested
 if st.sidebar.checkbox("Mostrar dados de treinamento"):
+    vn = setup_vanna()
     training_data = vn.get_training_data()
     st.sidebar.json(training_data)
