@@ -2,6 +2,8 @@
 import os
 import sys
 import streamlit as st
+import json
+import tempfile
 
 __import__('pysqlite3')
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -10,9 +12,18 @@ from vanna.chromadb import ChromaDB_VectorStore
 from vanna.google import GoogleGeminiChat
 from dotenv import load_dotenv
 import pandas as pd
+from google.oauth2 import service_account
+from google.cloud import bigquery
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Try to import credentials, but don't fail if not available
+try:
+    from credentials import get_gemini_api_key, get_google_credentials_json
+    has_credentials_module = True
+except ImportError:
+    has_credentials_module = False
 
 GCP_PROJECT_ID = 'hitech-dados'
 BQ_DATASET = 'seat'
@@ -26,17 +37,79 @@ st.write("Faça perguntas sobre os dados de alocação de impulsers em linguagem
 # Initialize Vanna with caching
 @st.cache_resource(ttl=3600)
 def setup_vanna():
+    # Try to get credentials from various sources
+    credentials = None
+    gemini_api_key = None
+    
+    # First try Streamlit secrets
+    if "GOOGLE_APPLICATION_CREDENTIALS_JSON" in st.secrets:
+        try:
+            credentials_json = st.secrets["GOOGLE_APPLICATION_CREDENTIALS_JSON"]
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            st.sidebar.success("✅ Connected to BigQuery with Streamlit secrets")
+        except Exception as e:
+            st.sidebar.error(f"Error with Streamlit secrets: {e}")
+    
+    # Then try credentials module
+    elif has_credentials_module:
+        try:
+            google_credentials_json = get_google_credentials_json()
+            credentials_info = json.loads(google_credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            st.sidebar.success("✅ Connected to BigQuery with local credentials")
+        except Exception as e:
+            st.sidebar.warning(f"Could not use local credentials: {e}")
+    
+    # Finally try environment variable
+    elif os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+        try:
+            credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            credentials = service_account.Credentials.from_service_account_file(credentials_path)
+            st.sidebar.success("✅ Connected to BigQuery with environment credentials")
+        except Exception as e:
+            st.sidebar.warning(f"Could not use environment credentials: {e}")
+    
+    # Get Gemini API key from various sources
+    if "GEMINI_API_KEY" in st.secrets:
+        gemini_api_key = st.secrets["GEMINI_API_KEY"]
+    elif has_credentials_module:
+        try:
+            gemini_api_key = get_gemini_api_key()
+        except Exception:
+            pass
+    
+    if not gemini_api_key:
+        gemini_api_key = os.getenv('GEMINI_API_KEY')
+    
+    if not gemini_api_key:
+        st.sidebar.error("❌ No Gemini API key found")
+    else:
+        st.sidebar.success("✅ Gemini API key configured")
+    
+    # Create BigQuery client if we have credentials
+    client = None
+    if credentials:
+        client = bigquery.Client(credentials=credentials, project=GCP_PROJECT_ID)
+    
+    # Initialize Vanna
     class MyVanna(ChromaDB_VectorStore, GoogleGeminiChat):
         def __init__(self, config=None):
             ChromaDB_VectorStore.__init__(self, config=config)
-            GoogleGeminiChat.__init__(self, config={'api_key': os.getenv('GEMINI_API_KEY'), 'model': 'gemini-pro'})
+            GoogleGeminiChat.__init__(self, config={'api_key': gemini_api_key, 'model': 'gemini-pro'})
     
     vn = MyVanna()
     
     try:
-        vn.connect_to_bigquery(project_id='hitech-dados')
+        # Connect to BigQuery using the client we created
+        if client:
+            vn.bigquery_client = client
+            vn.bigquery_project_id = GCP_PROJECT_ID
+        else:
+            # Try default connection method as fallback
+            vn.connect_to_bigquery(project_id=GCP_PROJECT_ID)
         
-        # Training data
+        # Training data remains the same
         vn.train(ddl=f"""
         CREATE TABLE `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` (
           id bigserial NOT NULL,
