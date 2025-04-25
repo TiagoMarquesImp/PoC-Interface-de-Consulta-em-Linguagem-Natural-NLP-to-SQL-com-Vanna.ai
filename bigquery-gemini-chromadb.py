@@ -110,7 +110,252 @@ vn.train(question="Quantos projetos receberam impulsers alocados no mes de abril
 # At any time you can inspect what training data the package is able to reference
 training_data = vn.get_training_data()
 
+# Create a custom Flask app instead of using VannaFlaskApp
+from flask import Flask, render_template, request, jsonify
+import uuid
+import pandas as pd
 
-from vanna.flask import VannaFlaskApp
-app = VannaFlaskApp(vn)
-app.run()
+# Initialize Flask app
+app = Flask(__name__)
+app.secret_key = str(uuid.uuid4())
+
+# Store chat history
+chat_history = []
+
+@app.route('/')
+def home():
+    return render_template('index.html', chat_history=chat_history)
+
+@app.route('/ask', methods=['POST'])
+def ask():
+    question = request.json.get('question')
+    if not question:
+        return jsonify({'error': 'No question provided'}), 400
+    
+    # Get SQL from Vanna
+    sql = vn.generate_sql(question)
+    
+    # Execute the SQL
+    try:
+        df = vn.run_sql(sql)
+        result = df.to_dict(orient='records')
+        explanation = vn.explain_sql(sql)
+        
+        # Add to chat history
+        chat_entry = {
+            'question': question,
+            'sql': sql,
+            'result': result,
+            'explanation': explanation
+        }
+        chat_history.append(chat_entry)
+        
+        return jsonify(chat_entry)
+    except Exception as e:
+        return jsonify({'error': str(e), 'sql': sql}), 500
+
+# Create templates directory and HTML file if they don't exist
+import os
+if not os.path.exists('templates'):
+    os.makedirs('templates')
+
+# Create the HTML template
+with open('templates/index.html', 'w') as f:
+    f.write('''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SQL Chat Assistant</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding: 20px; background-color: #f5f5f5; }
+        .chat-container { 
+            height: 70vh; 
+            overflow-y: auto; 
+            margin-bottom: 20px; 
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+        .user-message { 
+            background-color: #e3f2fd; 
+            padding: 10px; 
+            border-radius: 10px; 
+            margin: 10px 0; 
+            max-width: 80%;
+            margin-left: auto;
+        }
+        .bot-message { 
+            background-color: #f1f1f1; 
+            padding: 10px; 
+            border-radius: 10px; 
+            margin: 10px 0; 
+            max-width: 80%;
+        }
+        .sql-code { 
+            background-color: #272822; 
+            color: #f8f8f2; 
+            padding: 10px; 
+            border-radius: 5px; 
+            overflow-x: auto; 
+            font-family: monospace;
+        }
+        .result-table { 
+            margin-top: 10px; 
+            overflow-x: auto; 
+            background-color: white;
+            border-radius: 5px;
+        }
+        .loading { 
+            display: none; 
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .header {
+            background-color: #0d6efd;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="mb-0">SQL Chat Assistant</h1>
+            <p class="mb-0">Ask questions about your data in natural language</p>
+        </div>
+        
+        <div class="chat-container" id="chatContainer">
+            <!-- Chat messages will appear here -->
+            <div class="bot-message">
+                <strong>Assistant:</strong> Hello! I'm your SQL assistant. Ask me questions about your data and I'll generate SQL queries to answer them.
+            </div>
+        </div>
+        
+        <div class="input-group mb-3">
+            <input type="text" id="questionInput" class="form-control" placeholder="Ask a question about your data...">
+            <button class="btn btn-primary" id="askButton">Ask</button>
+        </div>
+        
+        <div class="loading" id="loadingIndicator">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span class="ms-2">Generating SQL and fetching results...</span>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatContainer = document.getElementById('chatContainer');
+            const questionInput = document.getElementById('questionInput');
+            const askButton = document.getElementById('askButton');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            
+            // Function to add a message to the chat
+            function addMessage(content, isUser = false) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = isUser ? 'user-message' : 'bot-message';
+                messageDiv.innerHTML = content;
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            
+            // Function to handle asking a question
+            async function askQuestion() {
+                const question = questionInput.value.trim();
+                if (!question) return;
+                
+                // Add user question to chat
+                addMessage(`<strong>You:</strong> ${question}`, true);
+                
+                // Clear input and show loading
+                questionInput.value = '';
+                loadingIndicator.style.display = 'flex';
+                askButton.disabled = true;
+                
+                try {
+                    const response = await fetch('/ask', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ question }),
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        // Create response HTML
+                        let responseHTML = `<strong>Assistant:</strong><br>`;
+                        
+                        // Add SQL
+                        responseHTML += `<p>Generated SQL:</p><pre class="sql-code">${data.sql}</pre>`;
+                        
+                        // Add explanation if available
+                        if (data.explanation) {
+                            responseHTML += `<p>Explanation: ${data.explanation}</p>`;
+                        }
+                        
+                        // Add results as table if available
+                        if (data.result && data.result.length > 0) {
+                            responseHTML += `<div class="result-table"><table class="table table-striped table-sm">`;
+                            
+                            // Table headers
+                            responseHTML += '<thead><tr>';
+                            for (const key of Object.keys(data.result[0])) {
+                                responseHTML += `<th>${key}</th>`;
+                            }
+                            responseHTML += '</tr></thead>';
+                            
+                            // Table body
+                            responseHTML += '<tbody>';
+                            for (const row of data.result) {
+                                responseHTML += '<tr>';
+                                for (const key of Object.keys(row)) {
+                                    responseHTML += `<td>${row[key]}</td>`;
+                                }
+                                responseHTML += '</tr>';
+                            }
+                            responseHTML += '</tbody></table></div>';
+                        } else {
+                            responseHTML += '<p>No results returned.</p>';
+                        }
+                        
+                        addMessage(responseHTML);
+                    } else {
+                        // Handle error
+                        addMessage(`<strong>Error:</strong> ${data.error}<br>Generated SQL: <pre class="sql-code">${data.sql || 'None'}</pre>`);
+                    }
+                } catch (error) {
+                    addMessage(`<strong>Error:</strong> ${error.message}`);
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                    askButton.disabled = false;
+                }
+            }
+            
+            // Event listeners
+            askButton.addEventListener('click', askQuestion);
+            questionInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    askQuestion();
+                }
+            });
+        });
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+    ''')
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
+
+
