@@ -37,9 +37,6 @@ GCP_PROJECT_ID = 'hitech-dados'
 BQ_DATASET = 'seat'
 # GCP_REGION = "us-central1" # Não parece ser usado diretamente no código Vanna aqui
 
-# Set up the Streamlit page
-st.set_page_config(page_title="Consulta em Linguagem Natural - Impulso", layout="wide")
-
 # Initialize Vanna with caching using Streamlit Secrets
 @st.cache_resource(ttl=3600)
 def setup_vanna():
