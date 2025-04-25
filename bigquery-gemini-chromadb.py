@@ -115,12 +115,14 @@ def setup_vanna():
     vn.bigquery_project_id = GCP_PROJECT_ID # Define o project ID também se necessário
     st.sidebar.success("✅ Instância Vanna conectada ao BigQuery usando cliente dos secrets.")
 
-    # --- Treinamento Vanna (permanece igual) ---
+    # --- Treinamento Vanna (modificado para corrigir o erro) ---
     try:
         st.sidebar.info("Iniciando treinamento Vanna...")
         # Verifica se já existe algum dado de treinamento para evitar duplicar
         existing_training_data = vn.get_training_data()
-        if not existing_training_data: # Treina apenas se não houver dados existentes
+        
+        # Corrigido: Verifica corretamente se o DataFrame está vazio
+        if isinstance(existing_training_data, pd.DataFrame) and existing_training_data.empty:
             st.sidebar.warning("Nenhum dado de treinamento encontrado. Iniciando treinamento...")
 
             vn.train(ddl=f"""
@@ -158,18 +160,68 @@ def setup_vanna():
 
             vn.train(question="Quantos projetos receberam impulsers alocados no mes de abril de 2025?",
                     sql=f"select distinct count(project_id) FROM `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` where start_at >= '2025-04-01'")
-
+            
             st.sidebar.success("✅ Treinamento Vanna concluído.")
         else:
-            st.sidebar.info("✅ Dados de treinamento já existem. Pulando treinamento.")
+            # Verifica se é uma lista ou outro tipo de objeto
+            if isinstance(existing_training_data, list) and len(existing_training_data) == 0:
+                st.sidebar.warning("Nenhum dado de treinamento encontrado (lista vazia). Iniciando treinamento...")
+                
+                # Código de treinamento aqui (mesmo bloco acima)
+                vn.train(ddl=f"""
+                CREATE TABLE `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` (
+                id bigserial NOT NULL,
+                    resource_id int8 NULL,
+                    project_id int8 NULL,
+                    start_at date NOT NULL,
+                    end_at date NOT NULL,
+                    created_at timestamp NOT NULL,
+                    updated_at timestamp NOT NULL,
+                    billing_rate numeric(14, 2) NULL,
+                    resource_rate numeric(14, 2) NULL,
+                    client_id int8 NOT NULL,
+                    opportunity_id int8 NULL,
+                    xp_manager_id int8 NULL,
+                    "uuid" uuid NULL,
+                    replacement_id int8 NULL,
+                    modification_type int4 NULL,
+                    modification_reason int4 NULL,
+                    unarchive_history jsonb DEFAULT '[]'::jsonb NULL
+                );
+                """)
+
+                vn.train(documentation="A tabela 'allocations' contém informações sobre os impusers alocados. Quando a alocação iniciou e terminou, em qual projetos estão alocados. Valor hora que o impulser recebe e o valor que a empresa recebe por esse impulser. Qual o cliente o impulser está alocado. Por qual oportunidade de emprego ele foi aprovado e alocado. e qual funcionário dez o acompanhamento.")
+
+                vn.train(question="Quantos impulsers temos alocados hoje?",
+                        sql=f"select count(*) FROM `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` where end_at >= current_date")
+
+                vn.train(question="Quantos impulsers iniciaram suas alocações em abril de 2025?",
+                        sql=f"select count(*) FROM `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` where start_at >= '2025-04-01'")
+
+                vn.train(question="Qual é a porcentagem de fee por impulser que foram alocados a partir de em abril de 2025?",
+                        sql=f"select round((1 - a.resource_rate / (a.billing_rate * (1-0.1656)))*100,2) as percent_fee FROM `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` a where start_at >= '2025-04-01'")
+
+                vn.train(question="Quantos projetos receberam impulsers alocados no mes de abril de 2025?",
+                        sql=f"select distinct count(project_id) FROM `{GCP_PROJECT_ID}.{BQ_DATASET}.allocations` where start_at >= '2025-04-01'")
+                
+                st.sidebar.success("✅ Treinamento Vanna concluído.")
+            else:
+                st.sidebar.info(f"✅ Dados de treinamento já existem. Pulando treinamento. Tipo: {type(existing_training_data)}")
+                # Adiciona informação de diagnóstico
+                if isinstance(existing_training_data, pd.DataFrame):
+                    st.sidebar.info(f"DataFrame com {len(existing_training_data)} linhas")
+                elif isinstance(existing_training_data, list):
+                    st.sidebar.info(f"Lista com {len(existing_training_data)} itens")
+                else:
+                    st.sidebar.info(f"Tipo de dados: {type(existing_training_data)}")
 
     except Exception as e:
         st.sidebar.error(f"❌ Erro durante o treinamento Vanna: {e}")
         st.error(f"Erro durante o treinamento Vanna: {e}")
-        # Considere parar aqui se o treinamento for crítico
-        # st.stop()
-
-    return vn
+        # Adiciona mais informações de diagnóstico
+        import traceback
+        st.sidebar.error(f"Detalhes do erro: {traceback.format_exc()}")
+        # Não interrompe a execução para permitir outras funcionalidades
 
 # --- Funções Cacheadas (Baseadas no antigo vanna_calls.py e app.py) ---
 
